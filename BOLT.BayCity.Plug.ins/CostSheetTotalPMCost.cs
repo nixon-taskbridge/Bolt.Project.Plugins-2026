@@ -1,11 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-// Microsoft Dynamics CRM namespace(s)
+﻿// Microsoft Dynamics CRM namespace(s)
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Security.Policy;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace BOLT.BayCity.Plug.ins
 {
@@ -21,6 +22,7 @@ namespace BOLT.BayCity.Plug.ins
 
         public static decimal totalPMamount = 0.00m;
         public static decimal totalKDamount = 0.00m;
+        public static decimal totalMiscamount = 0.00m;
         public static decimal totalamount = 0.00m;
 
         IOrganizationService service;
@@ -55,11 +57,12 @@ namespace BOLT.BayCity.Plug.ins
                         {
                             Guid costsheetid = (ent.GetAttributeValue<EntityReference>("bolt_costsheet")).Id;
 
-                            if ((entity.LogicalName != "bolt_plannedmaintenanceservice" || entity.LogicalName != "bolt_kdservicemaintenance") && costsheetid != null)
+                            if ((entity.LogicalName != "bolt_plannedmaintenanceservice" || entity.LogicalName != "bolt_kdservicemaintenance" || entity.LogicalName != "bolt_miscitems") && costsheetid != null)
                             {
                                 PMAmountcalculation(costsheetid);
                                 KDAmountcalculation(costsheetid);
-                                totalamount = totalKDamount + totalPMamount;
+                                MiscAmountcalculation(costsheetid);
+                                totalamount = totalKDamount + totalPMamount + totalMiscamount;
 
                                 updateCostsheet(costsheetid);
 
@@ -163,9 +166,42 @@ namespace BOLT.BayCity.Plug.ins
 
         }
 
+        public void MiscAmountcalculation(Guid id)
+        {
+            tracingService.Trace("4");
+            // Define Condition Values
+            var query_statuscode = 1;
+            var query_bolt_costsheet = id;
+
+            // Instantiate QueryExpression query
+            var query = new QueryExpression("bolt_miscitems");
+
+            // Add columns to query.ColumnSet
+            query.ColumnSet.AddColumns("bolt_miscprice");
+
+            // Define filter query.Criteria
+            query.Criteria.AddCondition("statuscode", ConditionOperator.Equal, query_statuscode);
+            query.Criteria.AddCondition("bolt_costsheet", ConditionOperator.Equal, query_bolt_costsheet);
+
+            EntityCollection misccollection = service.RetrieveMultiple(query);
+
+
+            if (misccollection.Entities.Count != 0)
+            {
+                totalMiscamount = 0.00m;
+                for (int i = 0; i < misccollection.Entities.Count; i++)
+                {
+                    if (misccollection.Entities[i].Attributes.Contains("bolt_miscprice"))
+                        totalMiscamount += ((Money)misccollection.Entities[i]["bolt_miscprice"]).Value;
+                }
+            }
+            tracingService.Trace("5");
+
+        }
+
         public void updateCostsheet(Guid csid)
         {
-            tracingService.Trace("5");
+            tracingService.Trace("6");
             Entity e = new Entity();
             e.LogicalName = "bolt_costsheet";
             e.Id = csid;
@@ -173,7 +209,7 @@ namespace BOLT.BayCity.Plug.ins
             service.Update(e);
             totalamount = 0.00m;
 
-            tracingService.Trace("fina");
+            tracingService.Trace("final");
         }
     }
 }
