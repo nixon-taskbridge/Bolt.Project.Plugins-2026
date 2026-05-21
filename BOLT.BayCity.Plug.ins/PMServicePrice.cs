@@ -8,7 +8,7 @@ using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 namespace BOLT.BayCity.Plug.ins
 {
-    public class BCPMServicePrice : IPlugin
+    public class PMServicePrice : IPlugin
     {
 
         /// <summary>
