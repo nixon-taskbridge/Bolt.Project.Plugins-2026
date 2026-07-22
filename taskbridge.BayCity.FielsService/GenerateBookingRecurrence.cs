@@ -40,7 +40,7 @@ namespace Taskbridge.BayCity.FielsService
                     {
                         string workOrderTypeName = setup.GetAttributeValue<EntityReference>("msdyn_workordertype")?.Name ?? string.Empty;
 
-                        // For Major setup, use agreement start date and 12-month interval
+                        // For Major setup, use agreement start date and 12-month interval. 
                         DateTime adjustedStart = workOrderTypeName.Equals("Major PM", StringComparison.OrdinalIgnoreCase)
                             ? startDate
                             : GetStartDateByFrequency(startDate, frequency);
@@ -49,15 +49,35 @@ namespace Taskbridge.BayCity.FielsService
                             ? 12
                             : GetMonthIntervalByFrequency(frequency);
 
-                        int dayOfMonth = GetValidDayOfMonth(adjustedStart);
+                        DateTime recurrenceStart;
+
+                        int dayOfMonth = 1; //default it to 1st day of the month
+
+                        if (frequency == 126700004 || frequency == 126700005) // Bi-Weekly or Weekly
+                        {
+                            recurrenceStart = adjustedStart;
+                        }
+                        else // Annual, Semi-Annual, Quarterly, Monthly - 
+                        {
+                            
+                            recurrenceStart = new DateTime(adjustedStart.Year, adjustedStart.Month, dayOfMonth);
+                        }
+
+                        // int dayOfMonth = GetValidDayOfMonth(adjustedStart);
                         // Ensure day of the month is not before the start date, that will delay the booking date
                         // This is especially important when the original start date falls on a weekend,
                         // and the recurrence day is adjusted backward (e.g., from Saturday to Friday).
                         // If that adjusted day ends up earlier than the agreement start date,
                         // the system skips to the next interval month to generate the first booking correctly.
 
-                        DateTime adjustStart_New = new DateTime(adjustedStart.Year, adjustedStart.Month, dayOfMonth); // t
-                        string xml = BuildRecurrenceXml(adjustStart_New, endDate, intervalMonths, dayOfMonth);
+                        //DateTime adjustStart_New = new DateTime(adjustedStart.Year, adjustedStart.Month, dayOfMonth); // 
+
+                        // For Weekly and Bi-Weekly agreements, only one Major PM should be generated per year,
+                        // so Major PM uses a 12-month interval even when the service frequency is Weekly or Bi-Weekly.
+
+                        int recurrenceFrequency = workOrderTypeName.Equals("Major PM", StringComparison.OrdinalIgnoreCase) ? 126700000 : frequency;
+
+                        string xml = BuildRecurrenceXml(recurrenceStart, endDate, recurrenceFrequency, intervalMonths, dayOfMonth);
 
                         Entity e = new Entity("msdyn_agreementbookingsetup")
                         {
@@ -84,7 +104,48 @@ namespace Taskbridge.BayCity.FielsService
             
         }
         /// <summary>
+        /// Adjusts the recurrence start date based on the selected service frequency.
+        /// For monthly-based frequencies, this adds the required number of months.
+        /// For weekly-based frequencies, this adds the required number of weeks/days.
+        /// The returned date is used as the recurrence start date.
+        /// </summary>
+        private DateTime GetStartDateByFrequency(DateTime baseDate, int frequency)
+        {
+            try
+            {
+                int monthsToAdd = 0;
+
+                switch (frequency)
+                {
+                    case 126700001: // Semi-Annual
+                        monthsToAdd = 6;
+                        break;
+                    case 126700002: // Monthly
+                        monthsToAdd = 1;
+                        break;
+                    case 126700003: // Quarterly
+                        monthsToAdd = 3;
+                        break;
+                    case 126700004: // Bi-Weekly
+                        return baseDate.AddDays(14);
+
+                    case 126700005: // Weekly
+                        return baseDate.AddDays(7);
+                    default: // Annual or unknown
+                        monthsToAdd = 0;
+                        break;
+                }
+
+                return baseDate.AddMonths(monthsToAdd);
+            }
+            catch
+            {
+                return baseDate;
+            }
+        }
+        /// <summary>
         /// Returns the number of months to repeat based on service frequency.
+        /// this parameter is not required for the Bi-weekly and weekly types
         /// </summary>
         private int GetMonthIntervalByFrequency(int frequency)
         {
@@ -96,6 +157,10 @@ namespace Taskbridge.BayCity.FielsService
                     //For example, in a 2 - year semi - annual agreement:
                     //Major 1: 1/1/2026 ,Minor 1: 7/1/2026,Major 2: 1/1/2027,Minor 2: 7/1/2027
                 case 126700000: return 12; // Annual
+                case 126700004: // Bi-Weekly
+                    return 0;
+                case 126700005: // Weekly
+                    return 0;
                 default: return 12;        // Default to Annual if unknown
             }
         }
@@ -139,62 +204,71 @@ namespace Taskbridge.BayCity.FielsService
         /// <summary>
         /// Builds recurrence XML string based on monthly pattern.
         /// </summary>
-        private string BuildRecurrenceXml(DateTime start, DateTime end, int intervalMonths, int dayOfMonth)
+        private string BuildRecurrenceXml(DateTime start, DateTime end, int frequency, int intervalMonths, int dayOfMonth)
         {
             try
             {
-                return $@"<root>
-  <pattern>
-    <period>monthly</period>
-    <option>every</option>
-    <months every='{intervalMonths}'><day>{dayOfMonth}</day></months>
-  </pattern>
-  <range>
-    <start>{start:MM/dd/yyyy}</start>
-    <option>endBy</option>
-    <end>{end:MM/dd/yyyy}</end>
-  </range>
-  <datas/>
-</root>";
+                int day = (int)start.DayOfWeek;
+                switch (frequency)
+                {
+                
+                    case 126700004:                        
+
+                        return $@"<root>
+                      <pattern>
+                        <period>weekly</period>
+                        <option>every</option>
+                        <weeks every='2'>
+                          <days>{day}</days>
+                        </weeks>
+                      </pattern>
+                      <range>
+                        <start>{start:MM/dd/yyyy}</start>
+                        <option>endBy</option>
+                        <end>{end:MM/dd/yyyy}</end>
+                      </range>
+                      <datas/>
+                    </root>";
+
+                    case 126700005:
+                        return $@"<root>
+                      <pattern>
+                        <period>weekly</period>
+                        <option>every</option>
+                        <weeks every='1'>
+                          <days>{day}</days>
+                        </weeks>
+                      </pattern>
+                      <range>
+                        <start>{start:MM/dd/yyyy}</start>
+                        <option>endBy</option>
+                        <end>{end:MM/dd/yyyy}</end>
+                      </range>
+                      <datas/>
+                    </root>";
+
+                    default:
+
+                        return $@"<root>
+              <pattern>
+                <period>monthly</period>
+                <option>every</option>
+                <months every='{intervalMonths}'><day>{dayOfMonth}</day></months>
+              </pattern>
+              <range>
+                <start>{start:MM/dd/yyyy}</start>
+                <option>endBy</option>
+                <end>{end:MM/dd/yyyy}</end>
+              </range>
+              <datas/>
+            </root>";
+                }
             }
             catch
             {
                 return string.Empty;
-            }
-        }
-
-        /// <summary>
-        /// Adjusts the start date forward based on the frequency interval.
-        /// </summary>
-        private DateTime GetStartDateByFrequency(DateTime baseDate, int frequency)
-        {
-            try
-            {
-                int monthsToAdd = 0;
-
-                switch (frequency)
-                {
-                    case 126700001: // Semi-Annual
-                        monthsToAdd = 6;
-                        break;
-                    case 126700002: // Monthly
-                        monthsToAdd = 1;
-                        break;
-                    case 126700003: // Quarterly
-                        monthsToAdd = 3;
-                        break;
-                    default: // Annual or unknown
-                        monthsToAdd = 0;
-                        break;
-                }
-
-                return baseDate.AddMonths(monthsToAdd);
-            }
-            catch
-            {
-                return baseDate;
-            }
-        }
+            }        
+        }        
 
         /// <summary>
         /// Retrieves related booking setups (Major/Minor) based on frequency.
