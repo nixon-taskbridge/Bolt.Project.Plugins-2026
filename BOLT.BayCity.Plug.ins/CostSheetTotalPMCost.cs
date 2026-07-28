@@ -91,7 +91,8 @@ namespace BOLT.BayCity.Plug.ins
                         Guid id = (preImage.GetAttributeValue<EntityReference>("bolt_costsheet")).Id;
                         PMAmountcalculation(id);
                         KDAmountcalculation(id);
-                        totalamount = totalKDamount + totalPMamount;
+                        MiscAmountcalculation(id);
+                        totalamount = totalKDamount + totalPMamount + totalMiscamount;
                         updateCostsheet(id);
 
 
