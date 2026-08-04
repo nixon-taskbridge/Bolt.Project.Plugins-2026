@@ -334,6 +334,20 @@ namespace Taskbridge.BayCity.FieldService
             tracingService.Trace( "Agreement Booking Incident updated successfully.");
         }
 
+        /// <summary>
+        /// Retrieves all Products or Services
+        /// for a single Agreement Booking Incident
+        /// and returns the total Sell Price
+        /// and Total Cost.
+        ///
+        /// Each child record already contains:
+        ///
+        /// tb_totalsellprice
+        /// tb_totalcost
+        ///
+        /// No calculations are performed here.
+        /// The method simply sums the values.
+        /// </summary>
         private static (decimal TotalSell, decimal TotalCost)  GetChildTotals( IOrganizationService service,  string childTableName, Guid incidentId)
         {
             QueryExpression query = new QueryExpression(childTableName)
