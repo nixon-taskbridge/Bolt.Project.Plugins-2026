@@ -92,6 +92,7 @@
   <ItemGroup>
     <Compile Include="AddAssetstoCopiedAgreement.cs" />
     <Compile Include="AgreementBookingIncidentPricing.cs" />
+    <Compile Include="AgreementBookingLinePricing .cs" />
     <Compile Include="AgreementFinancialsCalculation.cs" />
     <Compile Include="AgreementPricing_Industrial.cs" />
     <Compile Include="AgreementQuote_Pricing_V1.cs" />
