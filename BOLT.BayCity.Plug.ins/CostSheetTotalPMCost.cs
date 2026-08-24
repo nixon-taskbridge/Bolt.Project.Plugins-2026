@@ -13,23 +13,18 @@ namespace BOLT.BayCity.Plug.ins
     public class CostSheetTotalPMCost : IPlugin
     {
         /// <summary>
-        /// A plugin that add all the related Planeed maintenance and KD records 'Total contract Price' and updtaes cost sheet Total PM Cost field.
+        /// A plugin that adds all the related Planned Maintenance and KD records' 'Total contract Price' and updates cost sheet Total PM Cost field.
         /// new_job(Project)
         /// </summary>
         /// <remarks>
         /// Post Operation execution stage, and Synchronous execution mode.
         /// </remarks>
 
-        public static decimal totalPMamount = 0.00m;
-        public static decimal totalKDamount = 0.00m;
-        public static decimal totalMiscamount = 0.00m;
-        public static decimal totalamount = 0.00m;
-
         IOrganizationService service;
         ITracingService tracingService;
+
         public void Execute(IServiceProvider serviceProvider)
         {
-
             //Extract the tracing service for use in debugging sandboxed plug-ins.
             tracingService = (ITracingService)serviceProvider.GetService(typeof(ITracingService));
 
@@ -39,39 +34,40 @@ namespace BOLT.BayCity.Plug.ins
             if (context.InputParameters.Contains("Target") && context.InputParameters["Target"] is Entity)
             {
                 tracingService.Trace("A1");
-                // Obtain the target entity from the input parmameters.
+                // Obtain the target entity from the input parameters.
                 Entity entity = (Entity)context.InputParameters["Target"];
-
-
 
                 try
                 {
-
                     tracingService.Trace("A2");
                     IOrganizationServiceFactory serviceFactory = (IOrganizationServiceFactory)serviceProvider.GetService(typeof(IOrganizationServiceFactory));
                     service = serviceFactory.CreateOrganizationService(context.UserId);
+
                     if ((context.MessageName == "Create" || context.MessageName == "Update"))
                     {
                         Entity ent = service.Retrieve(entity.LogicalName, entity.Id, new ColumnSet(true));
                         if (ent.Attributes.Contains("bolt_costsheet"))
                         {
-                            Guid costsheetid = (ent.GetAttributeValue<EntityReference>("bolt_costsheet")).Id;
-
-                            if ((entity.LogicalName != "bolt_plannedmaintenanceservice" || entity.LogicalName != "bolt_kdservicemaintenance" || entity.LogicalName != "bolt_miscitems") && costsheetid != null)
+                            EntityReference costsheetRef = ent.GetAttributeValue<EntityReference>("bolt_costsheet");
+                            if (costsheetRef != null)
                             {
-                                PMAmountcalculation(costsheetid);
-                                KDAmountcalculation(costsheetid);
-                                MiscAmountcalculation(costsheetid);
-                                totalamount = totalKDamount + totalPMamount + totalMiscamount;
+                                Guid costsheetid = costsheetRef.Id;
 
-                                updateCostsheet(costsheetid);
+                                if ((entity.LogicalName == "bolt_plannedmaintenanceservice"
+                                     || entity.LogicalName == "bolt_kdservicemaintenance"
+                                     || entity.LogicalName == "bolt_miscitems")
+                                    && costsheetid != Guid.Empty)
+                                {
+                                    decimal pmTotal = PMAmountcalculation(costsheetid);
+                                    decimal kdTotal = KDAmountcalculation(costsheetid);
+                                    decimal miscTotal = MiscAmountcalculation(costsheetid);
+                                    decimal totalamount = pmTotal + kdTotal + miscTotal;
 
-
+                                    updateCostsheet(costsheetid, totalamount);
+                                }
                             }
                         }
                     }
-
-
                 }
                 catch (Exception ex)
                 {
@@ -86,22 +82,21 @@ namespace BOLT.BayCity.Plug.ins
                 Entity preImage = (Entity)context.PreEntityImages["preImage"];
                 if (preImage.Contains("bolt_costsheet"))
                 {
-                    if ((preImage.GetAttributeValue<EntityReference>("bolt_costsheet")).Id != null)
+                    EntityReference costsheetRef = preImage.GetAttributeValue<EntityReference>("bolt_costsheet");
+                    if (costsheetRef != null && costsheetRef.Id != Guid.Empty)
                     {
-                        Guid id = (preImage.GetAttributeValue<EntityReference>("bolt_costsheet")).Id;
-                        PMAmountcalculation(id);
-                        KDAmountcalculation(id);
-                        MiscAmountcalculation(id);
-                        totalamount = totalKDamount + totalPMamount + totalMiscamount;
-                        updateCostsheet(id);
-
-
+                        Guid id = costsheetRef.Id;
+                        decimal pmTotal = PMAmountcalculation(id);
+                        decimal kdTotal = KDAmountcalculation(id);
+                        decimal miscTotal = MiscAmountcalculation(id);
+                        decimal totalamount = pmTotal + kdTotal + miscTotal;
+                        updateCostsheet(id, totalamount);
                     }
                 }
             }
         }
 
-        public void PMAmountcalculation(Guid id)
+        public decimal PMAmountcalculation(Guid id)
         {
             tracingService.Trace("1");
             // Define Condition Values
@@ -120,21 +115,20 @@ namespace BOLT.BayCity.Plug.ins
 
             EntityCollection PMcollection = service.RetrieveMultiple(query);
 
-            if (PMcollection.Entities.Count != 0)
+            // FIX: always start from 0 regardless of whether any records were found,
+            // so an empty result correctly produces 0 instead of retaining a stale value.
+            decimal totalPMamount = 0.00m;
+            foreach (var e in PMcollection.Entities)
             {
-                totalPMamount = 0.00m;
-                for (int i = 0; i < PMcollection.Entities.Count; i++)
-                {
-                    if (PMcollection.Entities[i].Attributes.Contains("bolt_totalcontractamount"))
-                        totalPMamount += ((Money)PMcollection.Entities[i]["bolt_totalcontractamount"]).Value;
-
-                }
+                if (e.Attributes.Contains("bolt_totalcontractamount"))
+                    totalPMamount += ((Money)e["bolt_totalcontractamount"]).Value;
             }
+
             tracingService.Trace("2");
-
-
+            return totalPMamount;
         }
-        public void KDAmountcalculation(Guid id)
+
+        public decimal KDAmountcalculation(Guid id)
         {
             tracingService.Trace("3");
             // Define Condition Values
@@ -153,21 +147,18 @@ namespace BOLT.BayCity.Plug.ins
 
             EntityCollection kdcollection = service.RetrieveMultiple(query);
 
-
-            if (kdcollection.Entities.Count != 0)
+            decimal totalKDamount = 0.00m;
+            foreach (var e in kdcollection.Entities)
             {
-                totalKDamount = 0.00m;
-                for (int i = 0; i < kdcollection.Entities.Count; i++)
-                {
-                    if (kdcollection.Entities[i].Attributes.Contains("bolt_totalkdcontractprice"))
-                        totalKDamount += ((Money)kdcollection.Entities[i]["bolt_totalkdcontractprice"]).Value;
-                }
+                if (e.Attributes.Contains("bolt_totalkdcontractprice"))
+                    totalKDamount += ((Money)e["bolt_totalkdcontractprice"]).Value;
             }
-            tracingService.Trace("4");
 
+            tracingService.Trace("4");
+            return totalKDamount;
         }
 
-        public void MiscAmountcalculation(Guid id)
+        public decimal MiscAmountcalculation(Guid id)
         {
             tracingService.Trace("4");
             // Define Condition Values
@@ -186,21 +177,18 @@ namespace BOLT.BayCity.Plug.ins
 
             EntityCollection misccollection = service.RetrieveMultiple(query);
 
-
-            if (misccollection.Entities.Count != 0)
+            decimal totalMiscamount = 0.00m;
+            foreach (var e in misccollection.Entities)
             {
-                totalMiscamount = 0.00m;
-                for (int i = 0; i < misccollection.Entities.Count; i++)
-                {
-                    if (misccollection.Entities[i].Attributes.Contains("bolt_miscprice"))
-                        totalMiscamount += ((Money)misccollection.Entities[i]["bolt_miscprice"]).Value;
-                }
+                if (e.Attributes.Contains("bolt_miscprice"))
+                    totalMiscamount += ((Money)e["bolt_miscprice"]).Value;
             }
-            tracingService.Trace("5");
 
+            tracingService.Trace("5");
+            return totalMiscamount;
         }
 
-        public void updateCostsheet(Guid csid)
+        public void updateCostsheet(Guid csid, decimal totalamount)
         {
             tracingService.Trace("6");
             Entity e = new Entity();
@@ -208,7 +196,6 @@ namespace BOLT.BayCity.Plug.ins
             e.Id = csid;
             e["bolt_totalpmcost"] = new Money(totalamount);
             service.Update(e);
-            totalamount = 0.00m;
 
             tracingService.Trace("final");
         }
